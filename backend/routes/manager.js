@@ -4,11 +4,12 @@ const prisma = new PrismaClient();
 const { getRate } = require('../lib/fx');
 
 async function companyOf(userId) {
+  if (!userId) return null;
   const u = await prisma.user.findUnique({
     where: { id: userId },
     select: { companyId: true }
   });
-  return u?.companyId;
+  return u?.companyId || null;
 }
 async function companyBaseCurrency(companyId) {
   const c = await prisma.company.findUnique({
@@ -18,52 +19,87 @@ async function companyBaseCurrency(companyId) {
   return c?.defaultCurrency || 'USD';
 }
 
-function ensureConverted(expense, baseCurrency) {
-  if (expense.amountInCompanyCcy && expense.conversionRate) {
-    return {
-      convertedAmount: Number(expense.amountInCompanyCcy),
-      rate: Number(expense.conversionRate)
-    };
+async function ensureConverted(expense, baseCurrency) {
+  try {
+    if (expense.amountInCompanyCcy && expense.conversionRate) {
+      return {
+        convertedAmount: Number(expense.amountInCompanyCcy),
+        rate: Number(expense.conversionRate)
+      };
+    }
+    if (!expense.currency) {
+      return { convertedAmount: null, rate: null };
+    }
+    const rate = await getRate(expense.currency, baseCurrency);
+    const amount = Number(expense.amount);
+    if (!Number.isFinite(amount)) {
+      return { convertedAmount: null, rate };
+    }
+    const convertedAmount = Math.round(amount * rate * 100) / 100;
+    return { convertedAmount, rate };
+  } catch (err) {
+    console.error('fx conversion failed', err);
+    return { convertedAmount: null, rate: null };
   }
-  return getRate(expense.currency, baseCurrency).then((rate) => ({
-    convertedAmount: Math.round(Number(expense.amount) * rate * 100) / 100,
-    rate
-  }));
+}
+
+const INBOX_STATUSES = [
+  ExpenseStatus.SUBMITTED,
+  ExpenseStatus.IN_REVIEW,
+  ExpenseStatus.APPROVED,
+  ExpenseStatus.REJECTED
+];
+
+function ownerName(expense) {
+  const employee = expense.employee || expense.user;
+  if (!employee) return null;
+  const name = `${employee.firstName || ''} ${employee.lastName || ''}`.trim();
+  return name || null;
+}
+
+function mapExpense(expense, base, fxInfo) {
+  const amount = Number(expense.amount);
+  return {
+    id: expense.id,
+    description: expense.description,
+    status: expense.status,
+    category: expense.category?.name || null,
+    employee: ownerName(expense),
+    amount: Number.isFinite(amount) ? amount : null,
+    currency: expense.currency,
+    baseCurrency: base,
+    convertedAmount: fxInfo?.convertedAmount ?? null,
+    fxRate: fxInfo?.rate ?? null,
+    expenseDate: expense.expenseDate,
+    updatedAt: expense.updatedAt
+  };
 }
 
 router.get('/pending', async (req, res) => {
   try {
     const companyId = await companyOf(req.query.me);
+    if (!companyId) return res.json([]);
     const base = await companyBaseCurrency(companyId);
 
     const rows = await prisma.expense.findMany({
       where: {
         companyId,
-        status: { in: [ExpenseStatus.SUBMITTED, ExpenseStatus.IN_REVIEW] }
+        status: { in: INBOX_STATUSES }
       },
       include: {
         employee: { select: { firstName: true, lastName: true } },
+        user: { select: { firstName: true, lastName: true } },
         category: { select: { name: true } }
       },
-      orderBy: { createdAt: 'desc' }
+      orderBy: [{ createdAt: 'desc' }],
+      take: 200
     });
 
-    const mapped = await Promise.all(rows.map(async (e) => {
-      const fx = await ensureConverted(e, base);
-      return {
-        id: e.id,
-        description: e.description,
-        status: e.status,
-        category: e.category?.name || null,
-        employee: `${e.employee?.firstName || ''} ${e.employee?.lastName || ''}`.trim(),
-        amount: Number(e.amount),
-        currency: e.currency,
-        baseCurrency: base,
-        convertedAmount: fx.convertedAmount,
-        fxRate: fx.rate,
-        expenseDate: e.expenseDate
-      };
+    const mapped = await Promise.all(rows.map(async (expense) => {
+      const fx = await ensureConverted(expense, base);
+      return mapExpense(expense, base, fx);
     }));
+
     res.json(mapped);
   } catch (e) { console.error(e); res.status(500).json({ error: 'pending_failed' }); }
 });
@@ -71,6 +107,7 @@ router.get('/pending', async (req, res) => {
 router.get('/history', async (req, res) => {
   try {
     const companyId = await companyOf(req.query.me);
+    if (!companyId) return res.json([]);
     const base = await companyBaseCurrency(companyId);
     const rows = await prisma.expense.findMany({
       where: {
@@ -79,26 +116,16 @@ router.get('/history', async (req, res) => {
       },
       include: {
         employee: { select: { firstName: true, lastName: true } },
+        user: { select: { firstName: true, lastName: true } },
         category: { select: { name: true } }
       },
-      orderBy: { updatedAt: 'desc' }
+      orderBy: { updatedAt: 'desc' },
+      take: 200
     });
-    const mapped = await Promise.all(rows.map(async (e) => {
-      const fx = await ensureConverted(e, base);
-      return {
-        id: e.id,
-        description: e.description,
-        status: e.status,
-        category: e.category?.name || null,
-        employee: `${e.employee?.firstName || ''} ${e.employee?.lastName || ''}`.trim(),
-        amount: Number(e.amount),
-        currency: e.currency,
-        baseCurrency: base,
-        convertedAmount: fx.convertedAmount,
-        fxRate: fx.rate,
-        expenseDate: e.expenseDate,
-        updatedAt: e.updatedAt
-      };
+
+    const mapped = await Promise.all(rows.map(async (expense) => {
+      const fx = await ensureConverted(expense, base);
+      return mapExpense(expense, base, fx);
     }));
     res.json(mapped);
   } catch (e) { console.error(e); res.status(500).json({ error: 'history_failed' }); }
@@ -123,10 +150,16 @@ router.post('/expenses/:id/decision', async (req, res) => {
         }
       },
       include: {
-        approvals: true
+        employee: { select: { firstName: true, lastName: true } },
+        user: { select: { firstName: true, lastName: true } },
+        category: { select: { name: true } }
       }
     });
-    res.json(expense);
+
+    const base = await companyBaseCurrency(expense.companyId);
+    const fx = await ensureConverted(expense, base);
+
+    res.json(mapExpense(expense, base, fx));
   } catch (e) { console.error(e); res.status(500).json({ error: 'decision_failed' }); }
 });
 

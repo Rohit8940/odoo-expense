@@ -1,68 +1,170 @@
 import { useEffect, useState } from 'react';
 import {
-  Container, Typography, Box, Table, TableHead, TableBody, TableRow, TableCell, Button
+  Box,
+  Container,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
+  Button
 } from '@mui/material';
 import { api } from '../lib/api';
 import { useAuth } from '../providers/AuthProvider';
 
-const fmt = (n) => (Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: 2 }) : '');
+const fmtNumber = (value, fraction = 2) => (
+  Number.isFinite(value)
+    ? value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: fraction })
+    : null
+);
+
+const statusLabel = (status) => {
+  switch (status) {
+    case 'SUBMITTED':
+    case 'WAITING_APPROVAL':
+      return 'Submitted';
+    case 'IN_REVIEW':
+      return 'In review';
+    case 'APPROVED':
+      return 'Approved';
+    case 'REJECTED':
+      return 'Rejected';
+    default:
+      return status || 'Unknown';
+  }
+};
+
+const canActOn = (status) => (
+  status === 'SUBMITTED'
+  || status === 'WAITING_APPROVAL'
+  || status === 'IN_REVIEW'
+);
 
 export default function ManagerDashboard() {
   const { user } = useAuth();
   const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   const load = async () => {
-    const { data } = await api.get('/api/manager/pending', { params: { me: user.id } });
-    setRows(data);
+    try {
+      setLoading(true);
+      const { data } = await api.get('/api/manager/pending', { params: { me: user.id } });
+      setRows(data);
+    } catch (err) {
+      console.error(err);
+      setError('Unable to load approvals right now.');
+    } finally {
+      setLoading(false);
+    }
   };
-  useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const decide = async (id, approve) => {
-    await api.post(`/api/manager/expenses/${id}/decision`, { me: user.id, approve });
-    await load();
+    try {
+      setLoading(true);
+      const { data } = await api.post(`/api/manager/expenses/${id}/decision`, { me: user.id, approve });
+      setRows((prev) => prev.map((row) => (row.id === id ? data : row)));
+    } catch (err) {
+      console.error(err);
+      setError('Decision failed, please retry.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  return (
-    <Container maxWidth="lg" sx={{ mt: 4 }}>
-      <Typography variant="h5" gutterBottom>Approvals to review</Typography>
+  const conversionText = (row) => {
+    const baseAmount = fmtNumber(row.amount);
+    const original = baseAmount && row.currency
+      ? `${baseAmount} ${row.currency}`
+      : baseAmount || 'N/A';
 
-      <Table size="small">
-        <TableHead>
-          <TableRow>
-            <TableCell>Approval Subject</TableCell>
-            <TableCell>Request Owner</TableCell>
-            <TableCell>Category</TableCell>
-            <TableCell>Request Status</TableCell>
-            <TableCell>Total amount (in company’s currency)</TableCell>
-            <TableCell align="center" width={220}>Actions</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {rows.map(e => {
-            const subject = e.description || '—';
-            const owner = `${e.user?.firstName || ''} ${e.user?.lastName || ''}`.trim();
-            const fxNote = `${fmt(e.amount)} ${e.currency} (→ ${e.baseCurrency}) = ${fmt(e.convertedAmount)} ${e.baseCurrency}`;
-            const showActions = e.status === 'WAITING_APPROVAL';
-            return (
-              <TableRow key={e.id} hover>
-                <TableCell>{subject}</TableCell>
-                <TableCell>{owner || '—'}</TableCell>
-                <TableCell>{e.category || '—'}</TableCell>
-                <TableCell>{e.status}</TableCell>
-                <TableCell>{fxNote}</TableCell>
-                <TableCell align="center">
-                  {showActions ? (
-                    <Box display="inline-flex" gap={1}>
-                      <Button size="small" variant="outlined" color="success" onClick={() => decide(e.id, true)}>Approve</Button>
-                      <Button size="small" variant="outlined" color="error" onClick={() => decide(e.id, false)}>Reject</Button>
-                    </Box>
-                  ) : '—'}
+    if (Number.isFinite(row.convertedAmount) && row.baseCurrency) {
+      const converted = `${fmtNumber(row.convertedAmount)} ${row.baseCurrency}`;
+      const rateNote = Number.isFinite(row.fxRate) ? ` (rate ${fmtNumber(row.fxRate, 4)})` : '';
+      return `${original}${rateNote} = ${converted}`;
+    }
+
+    return original;
+  };
+
+  const ownerText = (row) => row.employee || 'N/A';
+
+  return (
+    <Container maxWidth="lg" sx={{ mt: 4, mb: 6 }}>
+      <Typography variant="h4" gutterBottom>Approvals to review</Typography>
+      {error && (
+        <Paper sx={{ mb: 2, p: 2, bgcolor: 'error.light' }}>
+          <Typography color="error.contrastText">{error}</Typography>
+        </Paper>
+      )}
+      <Paper>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>Approval subject</TableCell>
+              <TableCell>Request owner</TableCell>
+              <TableCell>Category</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Total amount (company currency)</TableCell>
+              <TableCell align="center" width={210}>Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {rows.map((row) => {
+              const actionsVisible = canActOn(row.status);
+              return (
+                <TableRow key={row.id} hover>
+                  <TableCell>{row.description || 'N/A'}</TableCell>
+                  <TableCell>{ownerText(row)}</TableCell>
+                  <TableCell>{row.category || 'N/A'}</TableCell>
+                  <TableCell>{statusLabel(row.status)}</TableCell>
+                  <TableCell>{conversionText(row)}</TableCell>
+                  <TableCell align="center">
+                    {actionsVisible ? (
+                      <Box display="inline-flex" gap={1}>
+                        <Button
+                          size="small"
+                          color="success"
+                          variant="outlined"
+                          disabled={loading}
+                          onClick={() => decide(row.id, true)}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="small"
+                          color="error"
+                          variant="outlined"
+                          disabled={loading}
+                          onClick={() => decide(row.id, false)}
+                        >
+                          Reject
+                        </Button>
+                      </Box>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">Decision recorded</Typography>
+                    )}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+            {!rows.length && (
+              <TableRow>
+                <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                  {loading ? 'Loading approvals�' : 'No items waiting for your approval.'}
                 </TableCell>
               </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
+            )}
+          </TableBody>
+        </Table>
+      </Paper>
     </Container>
   );
 }
