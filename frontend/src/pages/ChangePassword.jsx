@@ -3,29 +3,33 @@ import { Container, TextField, Button, Box, Typography } from '@mui/material';
 import { api } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
 
+const landing = (role) =>
+  role === 'ADMIN' ? '/admin/users'
+  : role === 'MANAGER' ? '/approvals/inbox'
+  : '/expenses/me';
+
 export default function ChangePassword() {
   const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirm: '' });
   const [loading, setLoading] = useState(false);
   const nav = useNavigate();
 
-  const onChange = e => setForm(s => ({ ...s, [e.target.name]: e.target.value }));
+  const onChange = (e) => setForm(s => ({ ...s, [e.target.name]: e.target.value }));
 
-  const submit = async e => {
+  const submit = async (e) => {
     e.preventDefault();
     if (form.newPassword !== form.confirm) return alert('Passwords do not match');
     setLoading(true);
     try {
-      await api.post('/api/auth/change-password', {
-        currentPassword: form.currentPassword,
-        newPassword: form.newPassword
-      }, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-      });
+      const { data } = await api.post(
+        '/api/auth/change-password',
+        { currentPassword: form.currentPassword, newPassword: form.newPassword },
+        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
+      );
       alert('Password updated');
-      nav('/'); // or role-based landing
+      nav(landing(data.user.role), { replace: true });
     } catch (err) {
-      alert('Change failed');
       console.error(err);
+      alert('Change failed');
     } finally { setLoading(false); }
   };
 

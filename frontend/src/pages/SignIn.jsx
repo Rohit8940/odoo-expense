@@ -5,10 +5,13 @@ import { Link, useNavigate } from 'react-router-dom';
 
 const landingRoute = (role) => {
   switch (role) {
-    case 'ADMIN': return '/admin/rules';
-    case 'MANAGER': return '/approvals/inbox';
+    case 'ADMIN':
+      return '/admin/users';
+    case 'MANAGER':
+      return '/manager/dashboard';
     case 'EMPLOYEE':
-    default: return '/';
+    default:
+      return '/employee/expenses';
   }
 };
 
@@ -23,24 +26,23 @@ export default function SignIn() {
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-const submit = async (event) => {
-  event.preventDefault();
-  setLoading(true);
-  try {
-    const loggedIn = await login(form.email, form.password);
-    if (loggedIn.mustChangePassword) {
-      nav('/change-password', { replace: true });
-    } else {
-      const destination = landingRoute(loggedIn?.role);
-      nav(destination, { replace: true });
+  const submit = async (event) => {
+    event.preventDefault();
+    setLoading(true);
+    try {
+      const loggedIn = await login(form.email, form.password);
+      if (loggedIn.mustChangePassword) {
+        nav('/change-password', { replace: true });
+      } else {
+        nav(landingRoute(loggedIn?.role), { replace: true });
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Login failed');
+    } finally {
+      setLoading(false);
     }
-  } catch (err) {
-    console.error(err);
-    alert('Login failed');
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   return (
     <Container maxWidth="xs" sx={{ mt: 6 }}>

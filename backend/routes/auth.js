@@ -77,19 +77,20 @@ router.post('/login', async (req, res) => {
 });
 
 
-router.post('/change-password', requireAuth, async (req,res)=>{
+router.post('/change-password', requireAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
-  const me = await prisma.user.findUnique({ where: { id: req.auth.sub } });
-  if (!me) return res.status(404).json({ error: 'user_not_found' });
-  const ok = await bcrypt.compare(currentPassword, me.passwordHash);
-  if (!ok) return res.status(400).json({ error: 'wrong_password' });
+  const u = await prisma.user.findUnique({ where: { id: req.auth.sub } });
+  if (!u) return res.status(404).json({ error: 'not_found' });
+  const ok = await bcrypt.compare(currentPassword, u.passwordHash);
+  if (!ok) return res.status(400).json({ error: 'bad_current' });
 
   const hash = await bcrypt.hash(newPassword, 10);
-  await prisma.user.update({
-    where: { id: me.id },
-    data: { passwordHash: hash, mustChangePassword: false }
+  const updated = await prisma.user.update({
+    where: { id: u.id },
+    data: { passwordHash: hash, mustChangePassword: false },
+    select: { id: true, email: true, role: true, mustChangePassword: true }
   });
-  return res.json({ ok: true });
+  res.json({ user: updated }); // <-- send role back
 });
 
 module.exports = router;
