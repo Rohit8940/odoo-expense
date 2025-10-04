@@ -1,0 +1,243 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/**
+ * =======================
+ * Core RBAC & Tenancy
+ * =======================
+ */
+
+// -----------------------
+// Roles & Users
+// -----------------------
+model Role {
+  id    Int    @id @default(autoincrement())
+  name  String @unique // "ADMIN" | "MANAGER" | "EMPLOYEE"
+  users User[]
+
+  // back-rel for ApprovalStage.approverRole
+  approvalStages ApprovalStage[] @relation("StageApproverRole")
+}
+
+model Company {
+  id                Int      @id @default(autoincrement())
+  name              String
+  countryCode       String
+  currencyCode      String // e.g. "INR", "USD"
+  isManagerApprover Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  users          User[]
+  employees      EmployeeProfile[]
+  expenses       Expense[]
+  approvalStages ApprovalStage[]
+  approvalRules  ApprovalRule[]
+
+  @@index([currencyCode])
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  fullName  String
+  email     String   @unique
+  password  String
+  phone     String?
+  avatar    String?
+  createdAt DateTime @default(now())
+
+  // RBAC
+  roleId Int
+  role   Role @relation(fields: [roleId], references: [id])
+
+  // Tenancy
+  companyId Int
+  company   Company @relation(fields: [companyId], references: [id])
+
+  // Employee extras (optional for ADMIN)
+  employeeProfile EmployeeProfile?
+
+  // back-rel for EmployeeProfile.manager
+  managedEmployees EmployeeProfile[] @relation("ManagesEmployees")
+
+  // back-rel for Expense.employee
+  submittedExpenses Expense[] @relation("ExpenseEmployee")
+
+  // back-rel for ExpenseApproval.approver
+  approvalsMade ExpenseApproval[] @relation("ApprovalApprover")
+
+  // back-rel for ApprovalStage.approverUser
+  approvalStagesAsUser ApprovalStage[] @relation("StageApproverUser")
+
+  // back-rel for ApprovalRule.specificUser
+  rulesAsSpecificUser ApprovalRule[] @relation("RuleSpecificUser")
+
+  @@index([companyId, roleId])
+  @@index([email])
+}
+
+/**
+ * =======================
+ * Org graph
+ * =======================
+ */
+model EmployeeProfile {
+  id     Int  @id @default(autoincrement())
+  userId Int  @unique
+  user   User @relation(fields: [userId], references: [id])
+
+  companyId Int
+  company   Company @relation(fields: [companyId], references: [id])
+
+  managerUserId Int?
+  manager       User? @relation("ManagesEmployees", fields: [managerUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, managerUserId])
+}
+
+/**
+ * =======================
+ * Expenses
+ * =======================
+ */
+enum ExpenseStatus {
+  DRAFT
+  SUBMITTED
+  IN_REVIEW
+  APPROVED
+  REJECTED
+}
+
+model Expense {
+  id Int @id @default(autoincrement())
+
+  companyId Int
+  company   Company @relation(fields: [companyId], references: [id])
+
+  employeeId Int
+  employee   User @relation("ExpenseEmployee", fields: [employeeId], references: [id])
+
+  // Money
+  amountOriginal     Decimal @db.Decimal(18, 4)
+  currencyOriginal   String
+  amountInCompanyCcy Decimal @db.Decimal(18, 4)
+
+  // Details
+  category    String
+  description String
+  expenseDate DateTime
+  receiptUrl  String?
+
+  status ExpenseStatus @default(DRAFT)
+
+  // Workflow
+  currentStageOrder Int?
+  totalStages       Int?
+  approvals         ExpenseApproval[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, employeeId, status])
+  @@index([expenseDate])
+}
+
+/**
+ * =======================
+ * Stage configuration
+ * =======================
+ */
+model ApprovalStage {
+  id        Int     @id @default(autoincrement())
+  companyId Int
+  company   Company @relation(fields: [companyId], references: [id])
+
+  order    Int
+  name     String
+  isActive Boolean @default(true)
+
+  // either role-driven...
+  approverRoleId Int?
+  approverRole   Role? @relation("StageApproverRole", fields: [approverRoleId], references: [id])
+
+  // ...or specific user
+  approverUserId Int?
+  approverUser   User? @relation("StageApproverUser", fields: [approverUserId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, order])
+  @@index([companyId, approverRoleId])
+  @@index([companyId, approverUserId])
+}
+
+/**
+ * =======================
+ * Conditional rules
+ * =======================
+ */
+enum RuleType {
+  PERCENTAGE
+  SPECIFIC_APPROVER
+  HYBRID
+}
+
+model ApprovalRule {
+  id        Int     @id @default(autoincrement())
+  companyId Int
+  company   Company @relation(fields: [companyId], references: [id])
+
+  ruleType         RuleType
+  percentageNeeded Int? // 0..100
+
+  specificUserId Int?
+  specificUser   User? @relation("RuleSpecificUser", fields: [specificUserId], references: [id])
+
+  orLogic Boolean @default(true) // for HYBRID: true => OR, false => AND
+
+  // Optional amount gates (company currency)
+  minAmountCompanyCcy Decimal? @db.Decimal(18, 4)
+  maxAmountCompanyCcy Decimal? @db.Decimal(18, 4)
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, isActive])
+  @@index([specificUserId])
+}
+
+/**
+ * =======================
+ * Approval decisions
+ * =======================
+ */
+model ExpenseApproval {
+  id        Int     @id @default(autoincrement())
+  expenseId Int
+  expense   Expense @relation(fields: [expenseId], references: [id])
+
+  stageOrder Int?
+  approverId Int
+  approver   User @relation("ApprovalApprover", fields: [approverId], references: [id])
+
+  approved  Boolean?
+  comment   String?
+  decidedAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([expenseId, approverId])
+  @@index([stageOrder])
+}

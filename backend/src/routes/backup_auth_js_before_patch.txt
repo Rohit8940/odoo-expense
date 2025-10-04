@@ -1,0 +1,61 @@
+import express from "express";
+import { PrismaClient } from "@prisma/client";
+import jwt from "jsonwebtoken";
+import { JWT_SECRET} from "../config.js";
+import { hashPassword, comparePassword } from "../utils/hash.js";
+
+const router = express.Router();
+const prisma = new PrismaClient();
+
+router.post("/signup", async (req,res) => {
+    try{
+        const { email, name, phone, password, role } = req.body;
+
+        const existingUser = await prisma.user.findUnique({where:{email}});
+        if(existingUser){
+            return res.status(400).json({message:"User already exists"});        
+    }
+    const hashed = await hashPassword(password);
+    let dbRole = await prisma.role.findUnique({where:{name:role}});
+    if(!dbRole){
+        dbRole = await prisma.role.create({data:{name:role}});
+    }
+    const user = await prisma.user.create({
+        data:{
+            email,
+            fullName:name,
+            password: hashed,
+            roleId: dbRole.id,
+        },
+        include: {role:true},
+    })
+    const token = jwt.sign({id:user.id,email:user.email,role:user.role.name},JWT_SECRET,{expiresIn:"1d"});
+    res.status(201).json({user,token});
+    }
+    catch(err){
+        console.error(err);
+        res.status(500).json({message:"Server Error"})
+    }  
+});
+
+router.post("/login", async(req,res) => {
+    try{
+        const {email,password,role} = req.body;
+        const user = await prisma.user.findUnique({where:{email},include:{role:true}});
+        if(!user){
+            return res.status(400).json({message:"Invalid Credentials"});
+        }
+        const isMatch = await comparePassword(password,user.password);
+        if(!isMatch){
+            return res.status(400).json({message:"Invalid Credentials"});
+        }
+        const token = jwt.sign({id:user.id,email:user.email,role:user.role.name},JWT_SECRET,{expiresIn:"1d"});
+        res.status(200).json({user,token});
+    }
+    catch(err){
+        console.error(err);
+        res.status(500).json({message:"server error"});
+    }
+})
+
+export default router;
