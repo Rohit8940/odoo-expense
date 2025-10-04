@@ -7,6 +7,17 @@ const jwt = require('jsonwebtoken');
 function token(user) {
   return jwt.sign({ sub: user.id, role: user.role, companyId: user.companyId }, process.env.JWT_SECRET || 'devsecret', { expiresIn: '7d' });
 }
+function requireAuth(req, res, next) {
+  const hdr = req.headers.authorization || '';
+  const token = hdr.startsWith('Bearer ') ? hdr.slice(7) : null;
+  if (!token) return res.status(401).json({ error: 'unauthorized' });
+  try {
+    req.auth = jwt.verify(token, process.env.JWT_SECRET || 'devsecret');
+    next();
+  } catch {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+}
 
 // POST /api/auth/signup  (admin + company)
 router.post('/signup', async (req, res) => {

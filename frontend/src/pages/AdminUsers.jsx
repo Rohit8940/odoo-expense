@@ -3,11 +3,13 @@ import { Container, Typography, Box, TextField, MenuItem, Button, IconButton } f
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { api } from '../lib/api';
 import { useAuth } from '../providers/AuthProvider';
+import { useNavigate } from 'react-router-dom';
 
 const ROLES = ['ADMIN','MANAGER','EMPLOYEE'];
 
 export default function AdminUsers() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const nav = useNavigate();
   const [rows, setRows] = useState([]);
   const [all, setAll] = useState([]);
   const [newUser, setNewUser] = useState({ firstName: '', lastName: '', email: '', role: 'EMPLOYEE', managerId: '' });
@@ -25,7 +27,7 @@ export default function AdminUsers() {
   const managers = useMemo(() => all.filter(u => u.role !== 'EMPLOYEE'), [all]);
 
   const saveNew = async () => {
-    const { data } = await api.post('/api/admin/users', { me: user.id, ...newUser });
+    await api.post('/api/admin/users', { me: user.id, ...newUser });
     setNewUser({ firstName: '', lastName: '', email: '', role: 'EMPLOYEE', managerId: '' });
     await load();
     alert("User created. Temporary password sent via email.");
@@ -38,16 +40,17 @@ export default function AdminUsers() {
     await load();
   };
 
- const resetPassword = async (id) => {
-  await api.post(`/api/admin/users/${id}/send-password`);
-  alert("Temporary password sent to user's email.");
-};
-
+  const resetPassword = async (id) => {
+    await api.post(`/api/admin/users/${id}/send-password`);
+    alert("Temporary password sent to user's email.");
+  };
 
   return (
     <Container maxWidth="md" sx={{ mt: 4 }}>
       <Box display="flex" alignItems="center" gap={1}>
-        <Typography variant="h5">Users</Typography>
+        <Typography variant="h5" sx={{ flexGrow: 1 }}>Users</Typography>
+        <Button variant="outlined" onClick={() => nav('/admin/approval')}>Approval Rules</Button>
+        <Button variant="outlined" color="error" onClick={logout}>Logout</Button>
         <IconButton onClick={load}><RefreshIcon /></IconButton>
       </Box>
 

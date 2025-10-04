@@ -61,15 +61,15 @@ model Company {
 }
 
 model User {
-  id           String  @id @default(cuid())
-  email        String  @unique
-  passwordHash String
-  firstName    String
-  lastName     String
-  role         Role
-  companyId    String
+  id                 String  @id @default(cuid())
+  email              String  @unique
+  passwordHash       String
+  firstName          String
+  lastName           String
+  role               Role
+  companyId          String
   mustChangePassword Boolean @default(false)
-  company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company            Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   managerId String?
   manager   User?   @relation("UserToManager", fields: [managerId], references: [id])
@@ -194,11 +194,12 @@ model ApprovalFlow {
   useManagerAsFirstApprover Boolean @default(false)
   isSequential              Boolean @default(true) // new: sequence vs parallel
 
-  expenses  Expense[]
-  policy    ApprovalPolicy?    @relation("FlowPolicy")
-  steps     ApprovalFlowStep[]
-  createdAt DateTime           @default(now())
-  updatedAt DateTime           @updatedAt
+  description String?
+  expenses    Expense[]
+  policy      ApprovalPolicy?    @relation("FlowPolicy")
+  steps       ApprovalFlowStep[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
 
   @@unique([companyId, name])
 }

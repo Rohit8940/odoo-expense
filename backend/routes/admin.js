@@ -149,6 +149,7 @@ router.post('/flow', async (req, res) => {
       ? await prisma.approvalFlow.update({
           where: { id: existing.id },
           data: {
+            description: description || null,
             useManagerAsFirstApprover: !!useManagerAsFirstApprover,
             isSequential: !!isSequential,
             steps: {
@@ -199,12 +200,13 @@ router.post('/flow', async (req, res) => {
 });
 
 // GET /api/admin/candidates?me=<adminUserId>
+// routes/admin.js -> GET /api/admin/candidates
 router.get('/candidates', async (req, res) => {
   try {
     const companyId = await companyIdFromUser(req.query.me);
     const users = await prisma.user.findMany({
       where: { companyId },
-      select: { id: true, firstName: true, lastName: true, email: true, role: true }
+      select: { id: true, firstName: true, lastName: true, email: true, role: true, managerId: true }
     });
     res.json(users);
   } catch (e) { console.error(e); res.status(500).json({ error: 'candidates_failed' }); }
