@@ -8,236 +8,279 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/**
- * =======================
- * Core RBAC & Tenancy
- * =======================
- */
-
-// -----------------------
-// Roles & Users
-// -----------------------
-model Role {
-  id    Int    @id @default(autoincrement())
-  name  String @unique // "ADMIN" | "MANAGER" | "EMPLOYEE"
-  users User[]
-
-  // back-rel for ApprovalStage.approverRole
-  approvalStages ApprovalStage[] @relation("StageApproverRole")
+//
+// Enums
+//
+enum Role {
+  ADMIN
+  MANAGER
+  EMPLOYEE
 }
 
-model Company {
-  id                Int      @id @default(autoincrement())
-  name              String
-  countryCode       String
-  currencyCode      String // e.g. "INR", "USD"
-  isManagerApprover Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  users          User[]
-  employees      EmployeeProfile[]
-  expenses       Expense[]
-  approvalStages ApprovalStage[]
-  approvalRules  ApprovalRule[]
-
-  @@index([currencyCode])
-}
-
-model User {
-  id        Int      @id @default(autoincrement())
-  fullName  String
-  email     String   @unique
-  password  String
-  phone     String?
-  avatar    String?
-  createdAt DateTime @default(now())
-
-  // RBAC
-  roleId Int
-  role   Role @relation(fields: [roleId], references: [id])
-
-  // Tenancy
-  companyId Int
-  company   Company @relation(fields: [companyId], references: [id])
-
-  // Employee extras (optional for ADMIN)
-  employeeProfile EmployeeProfile?
-
-  // back-rel for EmployeeProfile.manager
-  managedEmployees EmployeeProfile[] @relation("ManagesEmployees")
-
-  // back-rel for Expense.employee
-  submittedExpenses Expense[] @relation("ExpenseEmployee")
-
-  // back-rel for ExpenseApproval.approver
-  approvalsMade ExpenseApproval[] @relation("ApprovalApprover")
-
-  // back-rel for ApprovalStage.approverUser
-  approvalStagesAsUser ApprovalStage[] @relation("StageApproverUser")
-
-  // back-rel for ApprovalRule.specificUser
-  rulesAsSpecificUser ApprovalRule[] @relation("RuleSpecificUser")
-
-  @@index([companyId, roleId])
-  @@index([email])
-}
-
-/**
- * =======================
- * Org graph
- * =======================
- */
-model EmployeeProfile {
-  id     Int  @id @default(autoincrement())
-  userId Int  @unique
-  user   User @relation(fields: [userId], references: [id])
-
-  companyId Int
-  company   Company @relation(fields: [companyId], references: [id])
-
-  managerUserId Int?
-  manager       User? @relation("ManagesEmployees", fields: [managerUserId], references: [id])
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([companyId, managerUserId])
-}
-
-/**
- * =======================
- * Expenses
- * =======================
- */
 enum ExpenseStatus {
   DRAFT
   SUBMITTED
   IN_REVIEW
   APPROVED
   REJECTED
+  CANCELED
 }
 
+enum ApprovalDecision {
+  PENDING
+  APPROVED
+  REJECTED
+  SKIPPED
+}
+
+enum ApprovalRuleType {
+  PERCENTAGE // e.g., 60% approvers needed
+  SPECIFIC_APPROVER // e.g., CFO approves; else auto-approved
+  HYBRID // percentage OR specific approver
+}
+
+//
+// Core
+//
+model Company {
+  id              String   @id @default(cuid())
+  name            String
+  country         String // e.g., "India"
+  defaultCurrency String // ISO 4217, e.g., "INR"
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  users      User[]
+  categories ExpenseCategory[]
+  flows      ApprovalFlow[]
+  expenses   Expense[]
+  policies   ApprovalPolicy[]
+  auditLogs  AuditLog[]
+
+  @@unique([name])
+}
+
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  role         Role
+  companyId    String
+  mustChangePassword Boolean @default(false)
+  company      Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  managerId String?
+  manager   User?   @relation("UserToManager", fields: [managerId], references: [id])
+  reports   User[]  @relation("UserToManager")
+
+  isManagerApprover Boolean @default(false)
+
+  expenses            Expense[]          @relation("EmployeeExpenses")
+  approvals           ExpenseApproval[]  @relation("ExpenseApprovalApprover") // approvals performed by this user
+  flowStepsAsApprover ApprovalFlowStep[] @relation("FlowStepApprover")
+  auditLogs           AuditLog[]         @relation("AuditActor")
+
+  // back-relation for ApprovalPolicy.specificApprover
+  approvalPoliciesAsSpecificApprover ApprovalPolicy[] @relation("PolicySpecificApprover")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+//
+// Expense + lines + receipt OCR
+//
 model Expense {
-  id Int @id @default(autoincrement())
+  id         String @id @default(cuid())
+  employeeId String
+  employee   User   @relation("EmployeeExpenses", fields: [employeeId], references: [id], onDelete: Cascade)
 
-  companyId Int
-  company   Company @relation(fields: [companyId], references: [id])
-
-  employeeId Int
-  employee   User @relation("ExpenseEmployee", fields: [employeeId], references: [id])
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   // Money
-  amountOriginal     Decimal @db.Decimal(18, 4)
-  currencyOriginal   String
-  amountInCompanyCcy Decimal @db.Decimal(18, 4)
+  amount             Decimal  @db.Decimal(14, 2) // original amount
+  currency           String // ISO 4217 of original amount
+  amountInCompanyCcy Decimal? @db.Decimal(14, 2) // snapshot converted amount
+  conversionRate     Decimal? @db.Decimal(18, 8) // snapshot rate used
 
-  // Details
-  category    String
-  description String
+  categoryId String?
+  category   ExpenseCategory? @relation(fields: [categoryId], references: [id])
+
+  description String?
   expenseDate DateTime
-  receiptUrl  String?
 
   status ExpenseStatus @default(DRAFT)
 
-  // Workflow
-  currentStageOrder Int?
-  totalStages       Int?
-  approvals         ExpenseApproval[]
+  // Workflow snapshot
+  flowId    String? // points to the flow template used
+  flow      ApprovalFlow?     @relation(fields: [flowId], references: [id])
+  // approvals instantiated from the flow
+  approvals ExpenseApproval[]
+
+  // OCR + receipt
+  receipt Receipt?
+  lines   ExpenseLine[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([companyId, employeeId, status])
-  @@index([expenseDate])
+  @@index([employeeId, status])
+  @@index([companyId, status, expenseDate])
 }
 
-/**
- * =======================
- * Stage configuration
- * =======================
- */
-model ApprovalStage {
-  id        Int     @id @default(autoincrement())
-  companyId Int
-  company   Company @relation(fields: [companyId], references: [id])
+model ExpenseLine {
+  id        String  @id @default(cuid())
+  expenseId String
+  expense   Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
 
-  order    Int
-  name     String
-  isActive Boolean @default(true)
-
-  // either role-driven...
-  approverRoleId Int?
-  approverRole   Role? @relation("StageApproverRole", fields: [approverRoleId], references: [id])
-
-  // ...or specific user
-  approverUserId Int?
-  approverUser   User? @relation("StageApproverUser", fields: [approverUserId], references: [id])
+  label    String // e.g., "Lunch", "Taxi"
+  amount   Decimal @db.Decimal(14, 2)
+  currency String // if line-level differs
+  notes    String?
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([companyId, order])
-  @@index([companyId, approverRoleId])
-  @@index([companyId, approverUserId])
 }
 
-/**
- * =======================
- * Conditional rules
- * =======================
- */
-enum RuleType {
-  PERCENTAGE
-  SPECIFIC_APPROVER
-  HYBRID
-}
+model ExpenseCategory {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
-model ApprovalRule {
-  id        Int     @id @default(autoincrement())
-  companyId Int
-  company   Company @relation(fields: [companyId], references: [id])
+  name        String
+  isActive    Boolean  @default(true)
+  // limits or policy hints
+  perTxnLimit Decimal? @db.Decimal(14, 2)
 
-  ruleType         RuleType
-  percentageNeeded Int? // 0..100
+  expenses Expense[]
 
-  specificUserId Int?
-  specificUser   User? @relation("RuleSpecificUser", fields: [specificUserId], references: [id])
-
-  orLogic Boolean @default(true) // for HYBRID: true => OR, false => AND
-
-  // Optional amount gates (company currency)
-  minAmountCompanyCcy Decimal? @db.Decimal(18, 4)
-  maxAmountCompanyCcy Decimal? @db.Decimal(18, 4)
-
-  isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 
-  @@index([companyId, isActive])
-  @@index([specificUserId])
+  @@unique([companyId, name])
 }
 
-/**
- * =======================
- * Approval decisions
- * =======================
- */
+model Receipt {
+  id        String  @id @default(cuid())
+  expenseId String  @unique
+  expense   Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  fileUrl      String? // storage location
+  // OCR extraction snapshot
+  ocrRawText   String?
+  merchantName String?
+  amount       Decimal?  @db.Decimal(14, 2)
+  currency     String?
+  purchaseDate DateTime?
+  vatAmount    Decimal?  @db.Decimal(14, 2)
+  taxNumber    String?
+
+  createdAt DateTime @default(now())
+}
+
+//
+// Approval flow templates for the company
+//
+model ApprovalFlow {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  name      String
+  minAmount Decimal? @db.Decimal(14, 2)
+  maxAmount Decimal? @db.Decimal(14, 2)
+
+  useManagerAsFirstApprover Boolean @default(false)
+  isSequential              Boolean @default(true) // new: sequence vs parallel
+
+  expenses  Expense[]
+  policy    ApprovalPolicy?    @relation("FlowPolicy")
+  steps     ApprovalFlowStep[]
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  @@unique([companyId, name])
+}
+
+model ApprovalFlowStep {
+  id     String       @id @default(cuid())
+  flowId String
+  flow   ApprovalFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+
+  order          Int
+  approverUserId String?
+  approverUser   User?   @relation("FlowStepApprover", fields: [approverUserId], references: [id])
+  approverRole   Role?
+  label          String?
+
+  isFinalGate Boolean @default(false)
+  isRequired  Boolean @default(true) // new: mandatory approver
+
+  @@unique([flowId, order])
+}
+
+//
+// Conditional approval policies (percentage, specific approver, hybrid)
+// Applied at flow level. Evaluated on the set of steps instantiated.
+//
+model ApprovalPolicy {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  // make flowId unique so upsert(where: { flowId }) works
+  flowId String       @unique
+  flow   ApprovalFlow @relation("FlowPolicy", fields: [flowId], references: [id], onDelete: Cascade)
+
+  type               ApprovalRuleType
+  requiredPercent    Int?
+  specificApproverId String?
+  specificApprover   User?            @relation("PolicySpecificApprover", fields: [specificApproverId], references: [id])
+
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+//
+// Runtime approvals per expense
+//
 model ExpenseApproval {
-  id        Int     @id @default(autoincrement())
-  expenseId Int
-  expense   Expense @relation(fields: [expenseId], references: [id])
+  id        String  @id @default(cuid())
+  expenseId String
+  expense   Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
 
-  stageOrder Int?
-  approverId Int
-  approver   User @relation("ApprovalApprover", fields: [approverId], references: [id])
+  stepOrder      Int // copied from template order
+  approverUserId String? // resolved concrete approver
+  approverUser   User?   @relation("ExpenseApprovalApprover", fields: [approverUserId], references: [id])
 
-  approved  Boolean?
-  comment   String?
-  decidedAt DateTime?
+  approverRole Role? // if queued to a role pool
+  decision     ApprovalDecision @default(PENDING)
+  comments     String?
+  decidedAt    DateTime?
 
   createdAt DateTime @default(now())
 
-  @@index([expenseId, approverId])
-  @@index([stageOrder])
+  @@index([expenseId, stepOrder])
+}
+
+//
+// Audit helpers (optional but useful)
+//
+model AuditLog {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  actorId String?
+  actor   User?   @relation("AuditActor", fields: [actorId], references: [id])
+
+  entityType String // "Expense" | "User" | "Flow" | etc.
+  entityId   String
+  action     String // "CREATE" | "UPDATE" | "APPROVE" | "REJECT" | ...
+  metadata   Json?
+
+  createdAt DateTime @default(now())
+
+  @@index([companyId, entityType, entityId])
 }

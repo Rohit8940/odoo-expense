@@ -1,25 +1,21 @@
+require('dotenv').config();
 const express = require('express');
-const cookieParser = require('cookie-parser');
+const cors = require('cors');
+const auth = require('./routes/auth');
+const admin = require('./routes/admin');
+const { sendMail } = require('./lib/mailer');
 
-const authRouter = require('./src/routes/auth');
-const expenseRouter = require('./src/routes/expense.route');
-const approvalsRouter = require('./src/routes/approvals.route');
-const usersRouter = require('./src/routes/users.route');
-const ocrRouter = require('./src/routes/ocr.route');
-const { attachUser } = require('./src/middleware/auth');
+
 
 const app = express();
+
+app.use(cors());
 app.use(express.json());
-app.use(cookieParser());
-app.use(attachUser);
+app.use('/api/auth', auth);
+app.use('/api/admin', admin);
+// backend/index.js
+app.use(cors({ origin: 'http://localhost:5173', credentials: false }));
 
-app.use('/api/auth', authRouter);
-app.use('/api/expenses', expenseRouter);
-app.use('/api/approvals', approvalsRouter);
-app.use('/api/users', usersRouter);
-app.use('/api/ocr', ocrRouter);
-
-app.get('/health', (_req, res) => res.json({ ok: true }));
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('api listening on ' + PORT));
+app.get('/health', (_, res) => res.json({ ok: true }));
+const port = process.env.PORT || 4000;
+app.listen(port, () => console.log(`api on :${port}`));

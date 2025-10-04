@@ -4,9 +4,13 @@ import Dashboard from './pages/Dashboard'
 import NewExpense from './pages/expenses/NewExpense'
 import MyExpenses from './pages/expenses/MyExpenses'
 import Inbox from './pages/approvals/Inbox'
-import Users from './pages/admin/Users'
-import Rules from './pages/admin/Rules'
+import Users from './pages/AdminUsers'
+import Rules from './pages/AdminApprovalRules'
 import { useAuth } from './context/authProvider'
+// main.jsx
+import ChangePassword from './pages/ChangePassword.jsx';
+
+
 
 
 function RequireAuth({ roles, children }) {
@@ -37,6 +41,7 @@ return (
 
 <Route path="/admin/users" element={<RequireAuth roles={["ADMIN"]}><Users /></RequireAuth>} />
 <Route path="/admin/rules" element={<RequireAuth roles={["ADMIN"]}><Rules /></RequireAuth>} />
+<Route path="/change-password" element={<ChangePassword/>} />
 </Routes>
 )
 }
