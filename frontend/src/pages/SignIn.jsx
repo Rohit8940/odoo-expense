@@ -5,13 +5,10 @@ import { Link, useNavigate } from 'react-router-dom';
 
 const landingRoute = (role) => {
   switch (role) {
-    case 'ADMIN':
-      return '/admin/users';
-    case 'MANAGER':
-      return '/admin/approval';
+    case 'ADMIN': return '/admin/rules';
+    case 'MANAGER': return '/approvals/inbox';
     case 'EMPLOYEE':
-    default:
-      return '/admin/approval';
+    default: return '/';
   }
 };
 

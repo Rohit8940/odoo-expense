@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Container, Typography, Box, TextField, MenuItem, Checkbox, FormControlLabel, Button } from '@mui/material';
+import {
+  Container, Typography, Box, TextField, MenuItem, Checkbox,
+  FormControlLabel, Button, IconButton, Tooltip
+} from '@mui/material';
+import LogoutIcon from '@mui/icons-material/Logout';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../providers/AuthProvider';
 
 export default function AdminApprovalRules() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
+  const nav = useNavigate();
+
   const [people, setPeople] = useState([]);
   const [selectedUserId, setSelectedUserId] = useState('');
   const [flowName, setFlowName] = useState('Miscellaneous');
@@ -17,7 +24,6 @@ export default function AdminApprovalRules() {
 
   const employees = useMemo(() => people, [people]);
   const managers = useMemo(() => people.filter(p => p.role !== 'EMPLOYEE'), [people]);
-  const peopleById = useMemo(() => Object.fromEntries(people.map(u => [u.id, `${u.firstName} ${u.lastName || ''}`])), [people]);
 
   useEffect(() => {
     (async () => {
@@ -28,7 +34,7 @@ export default function AdminApprovalRules() {
 
       const { data: conf } = await api.get('/api/admin/flow', { params: { me: user.id, name: flowName } });
       if (conf.flow) {
-        setDescription(conf.flow.description || description);
+        setDescription(conf.flow.description || 'Approval rule for miscellaneous expenses');
         setUseMgrFirst(conf.flow.useManagerAsFirstApprover);
         setIsSequential(conf.flow.isSequential);
         setRows(conf.flow.steps.sort((a,b)=>a.order-b.order).map(s => ({ userId: s.approverUserId || '', required: s.isRequired })));
@@ -59,7 +65,7 @@ export default function AdminApprovalRules() {
     if (dup) return 'Duplicate approver selected';
     if (useMgrFirst && !selectedUser?.managerId) return 'User has no manager set';
     return null;
-  }
+    }
 
   const save = async () => {
     const msg = validate();
@@ -79,11 +85,17 @@ export default function AdminApprovalRules() {
     alert('Saved');
   };
 
+  const doLogout = () => { logout(); nav('/login'); };
+
   return (
     <Container maxWidth="md" sx={{ mt: 4 }}>
-      <Typography variant="h5" gutterBottom>Approval rules</Typography>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+        <Typography variant="h5">Approval rules</Typography>
+        <Tooltip title="Logout">
+          <IconButton color="error" onClick={doLogout}><LogoutIcon /></IconButton>
+        </Tooltip>
+      </Box>
 
-      {/* Left column: user + description + manager */}
       <Box display="grid" gridTemplateColumns="1fr 1fr" gap={2}>
         <TextField select label="User" value={selectedUserId} onChange={e=>setSelectedUserId(e.target.value)}>
           {employees.map(u => <MenuItem key={u.id} value={u.id}>{u.firstName} {u.lastName}</MenuItem>)}
@@ -100,7 +112,11 @@ export default function AdminApprovalRules() {
           select
           label="Manager"
           value={selectedUser?.managerId || ''}
-          onChange={async e => { await updateManager(e.target.value); /* optimistic */ const v=e.target.value; setPeople(ps=>ps.map(p=>p.id===selectedUserId?{...p, managerId:v}:p)); }}
+          onChange={async e => {
+            const v = e.target.value;
+            await updateManager(v);
+            setPeople(ps => ps.map(p => p.id === selectedUserId ? { ...p, managerId: v } : p));
+          }}
         >
           <MenuItem value="">None</MenuItem>
           {managers.map(m => <MenuItem key={m.id} value={m.id}>{m.firstName} {m.lastName}</MenuItem>)}
@@ -112,7 +128,6 @@ export default function AdminApprovalRules() {
         </Box>
       </Box>
 
-      {/* Approvers list */}
       <Box mt={3}>
         <Typography variant="subtitle1" gutterBottom>Approvers</Typography>
         {rows.map((r, i) => (
@@ -128,7 +143,6 @@ export default function AdminApprovalRules() {
         <Button variant="outlined" onClick={addRow}>Add approver</Button>
       </Box>
 
-      {/* Percentage + specific approver */}
       <Box mt={3} display="grid" gridTemplateColumns="1fr 2fr" gap={2} alignItems="center">
         <TextField type="number" label="Minimum approval percentage" value={percent} onChange={e=>setPercent(Number(e.target.value))} inputProps={{ min:0, max:100 }} />
         <TextField select label="Specific approver (e.g., CFO)" value={specificApproverId} onChange={e=>setSpecificApproverId(e.target.value)}>

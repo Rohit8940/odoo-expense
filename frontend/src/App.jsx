@@ -9,6 +9,7 @@ import Rules from './pages/AdminApprovalRules'
 import { useAuth } from './context/authProvider'
 // main.jsx
 import ChangePassword from './pages/ChangePassword.jsx';
+import ChangePassword from './pages/ChangePassword'; 
 
 
 

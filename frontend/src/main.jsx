@@ -6,6 +6,7 @@ import SignUp from './pages/SignUp.jsx';
 import SignIn from './pages/SignIn.jsx';
 import AdminUsers from './pages/AdminUsers.jsx';
 import AdminApprovalRules from './pages/AdminApprovalRules.jsx';
+import ChangePassword from './pages/ChangePassword.jsx';
 
 function Private({ children }) {
   const { token } = useAuth();
@@ -38,6 +39,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <Route path="/" element={<Private><Landing /></Private>} />
           <Route path="/admin/users" element={<Private><AdminUsers /></Private>} />
           <Route path="/admin/approval" element={<Private><AdminApprovalRules /></Private>} />
+          <Route path="/change-password" element={<Private><ChangePassword /></Private>} />
         </Routes>
       </BrowserRouter>
     </AuthProvider>

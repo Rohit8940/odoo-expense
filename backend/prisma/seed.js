@@ -21,7 +21,15 @@ async function main() {
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@acme.test' },
-    update: {},
+    update: {
+      passwordHash: adminPwd,
+      firstName: 'Ada',
+      lastName: 'Admin',
+      role: Role.ADMIN,
+      companyId: company.id,
+      isManagerApprover: true,
+      mustChangePassword: false
+    },
     create: {
       email: 'admin@acme.test',
       passwordHash: adminPwd,
@@ -29,13 +37,22 @@ async function main() {
       lastName: 'Admin',
       role: Role.ADMIN,
       companyId: company.id,
-      isManagerApprover: true
+      isManagerApprover: true,
+      mustChangePassword: false
     }
   });
 
   const manager = await prisma.user.upsert({
     where: { email: 'manager@acme.test' },
-    update: {},
+    update: {
+      passwordHash: mgrPwd,
+      firstName: 'Max',
+      lastName: 'Manager',
+      role: Role.MANAGER,
+      companyId: company.id,
+      isManagerApprover: true,
+      mustChangePassword: false
+    },
     create: {
       email: 'manager@acme.test',
       passwordHash: mgrPwd,
@@ -43,13 +60,22 @@ async function main() {
       lastName: 'Manager',
       role: Role.MANAGER,
       companyId: company.id,
-      isManagerApprover: true
+      isManagerApprover: true,
+      mustChangePassword: false
     }
   });
 
   const cfo = await prisma.user.upsert({
     where: { email: 'cfo@acme.test' },
-    update: {},
+    update: {
+      passwordHash: cfoPwd,
+      firstName: 'Chloe',
+      lastName: 'CFO',
+      role: Role.MANAGER,
+      companyId: company.id,
+      isManagerApprover: true,
+      mustChangePassword: false
+    },
     create: {
       email: 'cfo@acme.test',
       passwordHash: cfoPwd,
@@ -57,13 +83,22 @@ async function main() {
       lastName: 'CFO',
       role: Role.MANAGER,
       companyId: company.id,
-      isManagerApprover: true
+      isManagerApprover: true,
+      mustChangePassword: false
     }
   });
 
   const employee = await prisma.user.upsert({
     where: { email: 'employee@acme.test' },
-    update: {},
+    update: {
+      passwordHash: empPwd,
+      firstName: 'Evan',
+      lastName: 'Employee',
+      role: Role.EMPLOYEE,
+      companyId: company.id,
+      managerId: manager.id,
+      mustChangePassword: false
+    },
     create: {
       email: 'employee@acme.test',
       passwordHash: empPwd,
@@ -71,7 +106,8 @@ async function main() {
       lastName: 'Employee',
       role: Role.EMPLOYEE,
       companyId: company.id,
-      managerId: manager.id
+      managerId: manager.id,
+      mustChangePassword: false
     }
   });
 
@@ -102,19 +138,23 @@ async function main() {
       }
     }
   });
-await prisma.approvalPolicy.upsert({
-  where: { flowId: flow.id },
-  update: {},
-  create: {
-    companyId: company.id,
-    flowId: flow.id,
-    type: ApprovalRuleType.HYBRID,
-    requiredPercent: 60,
-    specificApproverId: cfo.id,
-    active: true
-  }
-});
 
+  await prisma.approvalPolicy.upsert({
+    where: { flowId: flow.id },
+    update: {
+      requiredPercent: 60,
+      specificApproverId: cfo.id,
+      active: true
+    },
+    create: {
+      companyId: company.id,
+      flowId: flow.id,
+      type: ApprovalRuleType.HYBRID,
+      requiredPercent: 60,
+      specificApproverId: cfo.id,
+      active: true
+    }
+  });
 
   const expense = await prisma.expense.create({
     data: {
