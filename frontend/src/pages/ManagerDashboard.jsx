@@ -43,14 +43,16 @@ const canActOn = (status) => (
 );
 
 export default function ManagerDashboard() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const load = async () => {
+    if (!user?.id) return;
     try {
       setLoading(true);
+      setError(null);
       const { data } = await api.get('/api/manager/pending', { params: { me: user.id } });
       setRows(data);
     } catch (err) {
@@ -63,8 +65,7 @@ export default function ManagerDashboard() {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user?.id]); // wait for user.id
 
   const decide = async (id, approve) => {
     try {
@@ -98,12 +99,24 @@ export default function ManagerDashboard() {
 
   return (
     <Container maxWidth="lg" sx={{ mt: 4, mb: 6 }}>
-      <Typography variant="h4" gutterBottom>Approvals to review</Typography>
+      {/* Header with logout */}
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <Typography variant="h4">Approvals to review</Typography>
+        <Button
+          variant="outlined"
+          color="secondary"
+          onClick={logout}
+        >
+          Logout
+        </Button>
+      </Box>
+
       {error && (
         <Paper sx={{ mb: 2, p: 2, bgcolor: 'error.light' }}>
           <Typography color="error.contrastText">{error}</Typography>
         </Paper>
       )}
+
       <Paper>
         <Table size="small">
           <TableHead>
@@ -149,7 +162,9 @@ export default function ManagerDashboard() {
                         </Button>
                       </Box>
                     ) : (
-                      <Typography variant="body2" color="text.secondary">Decision recorded</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        Decision recorded
+                      </Typography>
                     )}
                   </TableCell>
                 </TableRow>
@@ -158,7 +173,7 @@ export default function ManagerDashboard() {
             {!rows.length && (
               <TableRow>
                 <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
-                  {loading ? 'Loading approvals…' : 'No items waiting for your approval.'}
+                  {loading ? 'Loading approvalsâ€¦' : 'No items waiting for your approval.'}
                 </TableCell>
               </TableRow>
             )}

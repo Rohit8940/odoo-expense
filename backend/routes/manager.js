@@ -5,11 +5,10 @@ const { getRate } = require('../lib/fx');
 
 async function companyOf(userId) {
   if (!userId) return null;
-  const u = await prisma.user.findUnique({
+  return prisma.user.findUnique({
     where: { id: userId },
     select: { companyId: true }
-  });
-  return u?.companyId || null;
+  }).then(u => u?.companyId || null);
 }
 async function companyBaseCurrency(companyId) {
   const c = await prisma.company.findUnique({

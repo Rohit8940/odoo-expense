@@ -8,7 +8,7 @@ const landingRoute = (role) => {
     case 'ADMIN':
       return '/admin/users';
     case 'MANAGER':
-      return '/manager/dashboard';
+      return '/approvals/inbox';
     case 'EMPLOYEE':
     default:
       return '/employee/expenses';

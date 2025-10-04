@@ -46,7 +46,7 @@ const fmtCurrency = (value, currency) => {
 };
 
 export default function EmployeeExpensePage() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth(); // added logout
   const [loading, setLoading] = useState(false);
   const [baseCurrency, setBaseCurrency] = useState('INR');
   const [totals, setTotals] = useState({ toSubmit: 0, waiting: 0, approved: 0 });
@@ -90,9 +90,7 @@ export default function EmployeeExpensePage() {
   const onReceipt = (event) => {
     const file = event.target.files?.[0] || null;
     setForm((prev) => ({ ...prev, receipt: file }));
-    if (event.target) {
-      event.target.value = '';
-    }
+    if (event.target) event.target.value = '';
   };
 
   const resetForm = () => {
@@ -107,9 +105,7 @@ export default function EmployeeExpensePage() {
     payload.append('currency', form.currency);
     payload.append('amount', form.amount);
     payload.append('expenseDate', form.expenseDate);
-    if (form.receipt) {
-      payload.append('receipt', form.receipt);
-    }
+    if (form.receipt) payload.append('receipt', form.receipt);
 
     try {
       setLoading(true);
@@ -146,13 +142,21 @@ export default function EmployeeExpensePage() {
     [expenses, selectedId]
   );
 
-  const handleRowClick = (id) => {
-    setSelectedId(id);
-  };
+  const handleRowClick = (id) => setSelectedId(id);
 
   return (
     <Container maxWidth="xl" sx={{ mt: 4, mb: 6 }}>
-      <Typography variant="h4" gutterBottom>My Expenses</Typography>
+      {/* Header with logout */}
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+        <Typography variant="h4">My Expenses</Typography>
+        <Button
+          variant="outlined"
+          color="secondary"
+          onClick={logout}
+        >
+          Logout
+        </Button>
+      </Box>
 
       {error && (
         <Paper sx={{ mb: 2, p: 2, bgcolor: 'error.light' }}>
@@ -391,6 +395,3 @@ export default function EmployeeExpensePage() {
     </Container>
   );
 }
-
-
-
